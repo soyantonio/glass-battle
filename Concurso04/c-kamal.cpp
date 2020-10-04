@@ -1,53 +1,134 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <queue>
 #define MAX_DISTANCE 1
+#define NON_DETERMINED 2
+#define NOT_POSSIBLE_BRUSH 3
+#define ALTERED 'X'
 
 using namespace std;
 
-struct Rectangle{
-  uint16_t start_x;
-  uint16_t start_y;
-  uint16_t end_x;
-  uint16_t end_y;
+struct Brush{
+  private:  
+    uint32_t width;
+    uint32_t height;
+    uint32_t pointer_y;
+    uint32_t pointer_x;
 
-  uint16_t rows(){
-    return end_y - start_y + 1;
-  }
+  public:
+    Brush(
+      const uint32_t &width, const uint32_t &height,
+      const uint32_t &pointer_x, const uint32_t &pointer_y
+    ){
+      this -> width = width;
+      this -> height = height;
+      this -> pointer_x = pointer_x;
+      this -> pointer_y = pointer_y;
+    }
 
-  uint16_t cols(){
-    return end_x - start_x + 1;
-  }
+    void expand_width(const vector<vector<char>> &painting){
+      while (painting[pointer_y][pointer_x + width + 1] == ALTERED){
+        width++;
+      }
+    }
+
+    void expand_height(const vector<vector<char>> &painting){
+      while (painting[pointer_y + height + 1][pointer_x] == ALTERED){
+        height++; 
+      }
+    }
+
+    bool soft_update_height(const vector<vector<char>> &painting, const bool &updated){
+      if(updated) return true;
+      uint32_t limit_y = pointer_y + height;
+      uint32_t limit_x = pointer_x + width;
+
+      if(painting[pointer_y + 1][limit_x + 1] != ALTERED) return false;
+      while (painting[pointer_y + 2 + height][pointer_x] == ALTERED){
+        height++;
+      }
+
+      return true;
+    }
+
+    bool soft_update_width(const vector<vector<char>> &painting, const bool &updated){
+      if(updated) return true;
+      uint32_t limit_y = pointer_y + height;
+      uint32_t limit_x = pointer_x + width;
+
+      if(painting[limit_y + 1][pointer_x + 1] != ALTERED) return false;
+      while (painting[pointer_y][pointer_x + 2 + width] == ALTERED){
+        width++;
+      }
+
+      return true;      
+    }
+
+    pair<uint32_t, uint32_t> measures(){
+      return pair<uint32_t, uint32_t>(this -> width, this -> height);
+    }
+
+    bool valid_in(const vector<vector<char>> &painting){
+      uint32_t limit_y = pointer_y + height;
+      uint32_t limit_x = pointer_x + width;
+      
+      if(painting[pointer_y][pointer_x] != ALTERED) return false;
+      if(painting[pointer_y][limit_x] != ALTERED) return false;
+      if(painting[limit_y][pointer_x] != ALTERED) return false;
+      if(painting[limit_y][limit_x] != ALTERED) return false;
+
+      return true;
+    }
+
+    bool move_in(const vector<vector<char>> &painting){
+      uint32_t limit_x = pointer_x + width;
+      uint32_t limit_y = pointer_y + height;
+      bool top_move = painting[pointer_y][limit_x + 1] == ALTERED;
+      bool bottom_move = painting[limit_y][limit_x + 1] == ALTERED;
+      bool left_move = painting[limit_y + 1][pointer_x] == ALTERED;
+      bool right_move = painting[limit_y + 1][limit_x] == ALTERED;
+
+      bool can_move_horizontal = top_move && bottom_move;
+      bool can_move_vertical = left_move && right_move;
+
+      bool undetermined_move = can_move_vertical && can_move_horizontal;
+      bool can_move = can_move_horizontal || can_move_vertical;
+      bool alterations = top_move || bottom_move || left_move || right_move;
+
+      if(undetermined_move) throw NON_DETERMINED;
+      if(!can_move && alterations) throw NOT_POSSIBLE_BRUSH;
+      if(!can_move) return false;
+
+      if(can_move_horizontal) ++pointer_x;
+      if(can_move_vertical) ++pointer_y;
+
+      return true;
+    }
+    
 };
 
-
-void altered_rectangles_in(
+bool is_valid_painting(
   const vector<vector<char>> &painting,
-  // queue<vector<uint16_t>> &rectangles
-  queue<Rectangle> &rectangles
+  const uint32_t &painting_height,
+  const uint32_t &painting_width
 ){
-  // x_s, y_s,  x_e, y_e
-  // vector<uint16_t> rectangle(4, 0);
-  Rectangle rectangle;
-
-  const uint16_t painting_height = painting.size();
-  const uint16_t painting_width = painting[0].size();
-  uint16_t last_row = 0;
-  uint16_t last_col = 0;  
+  uint32_t last_row = 0;
+  uint32_t last_col = 0;  
   bool is_row_set = false;
   bool is_col_set = false;
   bool are_rows_continuos;
   bool are_cols_continuos;
+  uint32_t prev_line_start = 0;
+  uint32_t prev_line_end = 0;
 
-  for(uint16_t row = 0; row < painting_height; ++row){
+  for(uint32_t row = 0; row < painting_height; ++row){
     is_col_set = false;
     last_col = 0;
 
-    uint16_t line_start, line_end;
+    uint32_t line_start, line_end;
 
     // per line
-    for(uint16_t col = 0; col < painting_width; ++col){
+    for(uint32_t col = 0; col < painting_width; ++col){
       const char &cell = painting[row][col];
       
       if(cell != 'X') continue;
@@ -58,7 +139,7 @@ void altered_rectangles_in(
       are_cols_continuos = col - last_col <= MAX_DISTANCE;
 
       if(!are_cols_continuos || !are_rows_continuos){
-        throw -1;
+        return false;
       }
 
       if(!is_col_set) line_start = col;
@@ -72,98 +153,129 @@ void altered_rectangles_in(
 
     if(!is_col_set) continue;
 
-    if(rectangles.size() == 0){
-      rectangle.start_x = line_start;
-      rectangle.start_y = row;
-      rectangle.end_x = line_end;
-      rectangle.end_y = row;
-      rectangles.push(rectangle);
-    }
-
-    const uint16_t &prev_line_start = rectangles.back().start_x;
-    const uint16_t &prev_line_end = rectangles.back().end_x;
-
     if(line_start < prev_line_start || line_end < prev_line_end){
-      throw -1;
+      return false;
     }
-
-    if(line_start != prev_line_start || line_end != prev_line_end){
-      rectangle.start_x = line_start;
-      rectangle.start_y = row;
-      rectangle.end_x = line_end;
-      rectangle.end_y = row;
-      rectangles.push(rectangle);
-    }
-
-    // For the lines that belongs to the same rectangle
-    rectangles.back().end_x = line_end;
-    rectangles.back().end_y = row;
+    
+    prev_line_start = line_start;
+    prev_line_end = line_end;
   }
+  return true;
 }
 
+
+pair<uint32_t, uint32_t> down_first(
+  const vector<vector<char>> &painting,
+  const uint32_t &start_y,
+  const uint32_t &start_x
+){
+  Brush *brush = new Brush(0, 0, start_x, start_y);
+  bool is_height_set = false;
+  brush -> expand_width(painting);
+
+  while(true){
+    bool valid_position = brush -> valid_in(painting);
+    if(!valid_position) throw 1;
+
+    is_height_set = brush -> soft_update_height(painting, is_height_set);
+
+    try{
+      bool brush_moved = brush -> move_in(painting);
+      if(!brush_moved) break;
+    }
+    catch(int x){
+      throw 1;
+    }
+  }
+  return brush -> measures();
+}
+
+
+pair<uint32_t, uint32_t> right_first(
+  const vector<vector<char>> &painting,
+  const uint32_t &start_y,
+  const uint32_t &start_x
+){
+  Brush *brush = new Brush(0, 0, start_x, start_y);
+  bool is_width_set = false;
+  brush -> expand_height(painting);
+
+  while(true){
+    bool valid_position = brush -> valid_in(painting);
+    if(!valid_position) throw 1;
+
+    is_width_set = brush -> soft_update_width(painting, is_width_set);
+
+    try{
+      bool brush_moved = brush -> move_in(painting);
+      if(!brush_moved) break;
+    }
+    catch(int x){
+      throw 1;
+    }
+  }
+  return brush -> measures();
+}
+
+
 int main(){
-  queue<Rectangle> rectangles;
-  uint16_t n, m;
+  uint32_t n, m;
+  uint32_t start_x, start_y;
+  bool checkpoint_set = false;
   cin >> n >> m;
 
-  vector<vector<char>> painting(n, vector<char>(m));
-  for(uint16_t i = 0; i < n; ++i){
-    for(uint16_t j = 0; j < m; ++j){
+  vector<vector<char>> painting(n + 5, vector<char>(m + 5));
+  for(uint32_t i = 0; i < n; ++i){
+    for(uint32_t j = 0; j < m; ++j){
       cin >> painting[i][j];
+      if(!checkpoint_set && painting[i][j] == 'X'){
+        start_x = j;
+        start_y = i;
+        checkpoint_set = true;
+      }
     }
   }
 
-  try{
-    altered_rectangles_in(painting, rectangles);
-  }
-  catch(int error){
+  bool valid = is_valid_painting(painting, n, m);
+
+  if(!valid){
     cout << "-1";
     return 0;
   }
 
-  Rectangle &rect = rectangles.front();
-  if(rectangles.size() == 1){
-    cout << min(rect.rows(), rect.cols());
+  bool not_possible_down = false;
+  bool not_possible_right = false;
+  uint32_t down_height = 0, down_width = 0;
+  uint32_t right_height = 0, right_width = 0;
+  uint32_t area;
+ 
+  try{
+    auto dfirst = down_first(painting, start_y, start_x);
+    down_height = dfirst.first + 1;
+    down_width = dfirst.second + 1;
+  }
+  catch(int x){
+    not_possible_down = true;
+  }
+  
+  try{
+    auto rfirst = right_first(painting, start_y, start_x);
+    right_height = rfirst.first + 1;
+    right_width = rfirst.second + 1;
+  }
+  catch(int x){
+    not_possible_right = true;
+  }
+  
+  if(not_possible_right && not_possible_down){
+    cout << "-1";
     return 0;
   }
-  
-  uint16_t rows_old = rect.rows();
-  uint16_t start_old = rect.start_x;
-  uint16_t end_old = rect.end_x;
-  rectangles.pop();
-  uint16_t width = 0;
-  uint16_t height = 0;
 
-  while (!rectangles.empty()){
-    Rectangle &current_rect = rectangles.front();
-    uint16_t rows_new = current_rect.rows();
-    uint16_t cols_new = current_rect.cols();
-    uint16_t start_new = current_rect.start_x;
-    uint16_t common = end_old - start_new + 1;
+  if(right_height*right_width == 0) area = down_height*down_width;
+  else if(down_height*down_width == 0) area = right_height*right_width;
+  else area = min(right_height*right_width, down_height*down_width);
 
-    if(start_new == start_old){
-      
-    }
-
-    // if(rows2 > rows_old && cols2 > common && start2 != start_old){
-    //   cout << "-1";
-    //   return 0;
-    // }
-
-    // if(rows2 < rows_old && start2 != start_old){
-    //   cout << "-1";
-    //   return 0;
-    // }
-
-    // width = common;
-    // height = min(rows_old, rows2);
-    // cout << "Amaxing" << endl;
-    // cout << algo.start_x << ' ' << algo.start_y << endl;
-    // cout << algo.end_x << ' ' << algo.end_y << endl;
-
-    rectangles.pop();
-  }
-  
-  cout << width*height;
+  cout << area;
   return 0;
 }
